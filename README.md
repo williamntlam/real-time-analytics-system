@@ -1,1 +1,141 @@
-# real-time-analytics-system
+# Real-Time Analytics System
+
+A production-grade, multi-module streaming analytics platform modeled after Stripe's core data infrastructure architecture. This engine eliminates traditional 24-hour batch processing bottlenecks by leveraging Apache Flink for low-latency stateful stream updates, Apache Spark for parallel historical state bootstrapping, and a real-time OLAP database (ClickHouse/Pinot) served via a Kotlin Query API to a responsive React dashboard.
+
+## System Architecture
+
+```
+                       ┌───────────────────┐
+                       │  Event Generator  │
+                       └─────────┬─────────┘
+                                 │ (Live Streaming Events via Kafka)
+                                 ▼
+   ┌──────────────────┐    ┌───────────┐    ┌─────────────────┐
+   │  Historical S3   │───>│  Apache   │───>│   Real-Time     │
+   │  (Parquet/CSV)   │    │   Flink   │    │ OLAP Database   │
+   └──────────────────┘    └───────────┘    └────────┬────────┘
+             │                   ▲                   │
+             │ (Batch Bootstrap) │                   │ (Sub-300ms Queries)
+             ▼                   │                   ▼
+       ┌───────────┐             │          ┌─────────────────┐
+       │  Apache   │─────────────┘          │   Kotlin Query  │
+       │   Spark   │ (Verifiable State)     │   API (Ktor/SB) │
+       └───────────┘                        └────────┬────────┘
+                                                     │
+                                                     ▼
+                                            ┌─────────────────┐
+                                            │ React Dashboard │
+                                            │  (TypeScript)   │
+                                            └─────────────────┘
+```
+
+The platform is split into distinct operational layers to handle complex history-dependent metrics and dynamic schema evolution:
+
+- **The Shared Core:** Unified Kotlin data models mapping transaction events and metric states across the entire distributed pipeline.
+- **The Cold Path (State Hydration):** An Apache Spark batch job written in Kotlin that crunches multi-year historical logs in parallel, outputting verifiable flat files to bootstrap Flink's application state backend (RocksDB).
+- **The Hot Path (Stream Processing):** An Apache Flink streaming application written in Kotlin that ingests live transaction events from Kafka, mutates its internal state in real time, and emits analytical updates to the OLAP sink.
+- **The Analytical & Presentation Layer:** ClickHouse/Pinot handles on-the-fly windowed aggregation queries. A Kotlin-based Query API serves these metrics to a React frontend, which visualizes the live stream data with sub-second responsiveness.
+
+## Tech Stack & Prerequisites
+
+- **Languages:** Kotlin 2.x (Backend Stack), TypeScript (Frontend Stack)
+- **Stream Processing:** Apache Flink (Stateful Stream API)
+- **Batch Compute:** Apache Spark (Java/Kotlin API)
+- **Message Broker:** Apache Kafka
+- **Storage & OLAP:** ClickHouse (or Apache Pinot v2), Mock S3 via LocalStack / MinIO
+- **Query API:** Ktor or Spring Boot (Kotlin)
+- **Frontend:** React (with TailwindCSS & Recharts / Apache ECharts)
+- **Build System:** Gradle (Multi-Project Kotlin DSL)
+- **Orchestration:** Docker Compose
+
+## Project Structure
+
+```text
+├── build.gradle.kts          # Root Gradle multi-project configuration
+├── docker-compose.yml        # Local multi-service infrastructure orchestrator
+├── core/                     # Shared Kotlin data models (BillingEvent, InvoiceState)
+├── event-generator/          # Kotlin app using Coroutines to simulate concurrent live SaaS traffic
+├── batch-bootstrap/          # Apache Spark batch job in Kotlin for parallel history processing
+├── stream-processor/         # Apache Flink engine in Kotlin managing stateful subscription ledgers
+├── query-api/                # Asynchronous Kotlin Query API (Ktor/Spring Boot) serving the frontend
+└── dashboard-ui/             # React application (TypeScript) building the analytical views
+```
+
+## Step-by-Step Implementation Guide
+
+### Phase 1: Spin Up Infrastructure
+
+Launch the core distributed systems stack locally using Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+Verify that the Kafka topics for `subscription-events` and ClickHouse ingestion tables are initialized via the scripts in your infrastructure configuration directory.
+
+### Phase 2: Build the Shared Core & Codebase
+
+Compile the multi-module project using Gradle:
+
+```bash
+./gradlew clean build
+```
+
+### Phase 3: Run the Historical Bootstrap (Spark)
+
+Simulate a "cold-start" or a metric definition change. Run the Spark batch job to parse historical data logs and produce a verifiable baseline state file wrapped with a SHA-256 checksum:
+
+```bash
+./gradlew :batch-bootstrap:run
+```
+
+### Phase 4: Hydrate & Launch the Live Stream (Flink)
+
+Deploy the Flink application. On startup, it reads the verifiable flat file generated by Spark to instantly hydrate its memory before tailing the live Kafka stream:
+
+```bash
+./gradlew :stream-processor:run --args="--bootstrap-path /data/bootstrap.csv"
+```
+
+### Phase 5: Start the Presentation & Live Traffic Layer
+
+Trigger the real-time event generator to mock user payments and subscription upgrades, run the API, and start the React app:
+
+```bash
+# Terminal 1: Live Event Feed via Kotlin Coroutines
+./gradlew :event-generator:run
+
+# Terminal 2: Start the Kotlin Query API
+./gradlew :query-api:run
+
+# Terminal 3: Start the React Frontend Dashboard
+cd dashboard-ui
+npm install && npm run dev
+```
+
+## Key Architectural Problems Solved
+
+### 1. Unified JVM Type Safety & Models
+
+By standardizing the entire backend data pipeline on Kotlin, the Event Generator, Spark batch job, Flink stream processor, and Query API all share the exact same compiled immutable data class schemas. This eliminates schema drift bugs across the distributed platform.
+
+### 2. High-Concurrency Event Simulation
+
+The event-generator leverages Kotlin Coroutines to simulate thousands of concurrent merchant transactions or webhook deliveries with zero thread-pool exhaustion, mimicking massive production-level transaction streams on minimal local hardware.
+
+### 3. Fast State Bootstrapping via Verifiable Flat Files
+
+Replaying years of streaming events through a single consumer to catch up a new stream node is highly inefficient. We offload this to Apache Spark to build an immutable snapshot in parallel, leaving Flink to only worry about zero-lag live updates.
+
+### 4. Hot-Swapping Mutable Schemas with Zero UI Downtime
+
+When a user redefines an analytics metric (e.g., excluding trial tiers from MRR), the dashboard orchestrates a seamless transition:
+
+1. Flink buffers live events temporarily in memory.
+2. An offline Spark job quickly recalculates the historical baseline under the new logic.
+3. Flink's state is patched with the new baseline, replays its buffered memory stream, and hot-swaps the view on the OLAP layer.
+4. The React client polls or listens to a WebSocket connection, fluidly loading the new metric state without a single page refresh or system freeze.
+
+## License
+
+This project is open-source and available under the MIT License.
