@@ -1,6 +1,6 @@
 # Real-Time Analytics System
 
-A distributed, fault-tolerant, real-time analytics platform powered by a **custom-built distributed execution engine** written in Kotlin.
+A distributed, fault-tolerant, real-time analytics platform powered by a **custom-built distributed execution engine** written in Golang.
 
 Inspired by the architecture of large-scale data processing systems such as Apache Spark and Apache Flink, this project explores the fundamental challenges of distributed computing by implementing its own task scheduler, worker discovery, distributed execution, fault recovery, state management, and result aggregation.
 
